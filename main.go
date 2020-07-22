@@ -6,7 +6,9 @@ import(
 	"net/http"
 	"encoding/json"
 	"os"
-	"github.com/streadway/amqp"
+    "github.com/streadway/amqp"
+    "github.com/go-redis/redis"
+    "strconv"
 )
 
 type Message struct {
@@ -30,7 +32,14 @@ func handler(w http.ResponseWriter, r *http.Request)  {
 		return
 	}
 
-    mess.Status = "running"
+    mess.Status = checkCache("jobId" + strconv.Itoa(mess.JobId))
+    if mess.Status == "completed" {
+        fmt.Fprintf(w, "Message: %+v", mess)
+        fmt.Println("Message: %v", mess)
+        return
+    } else {
+        mess.Status = "running"
+    }
     body, err := json.Marshal(mess)
     fmt.Fprintf(w, "Message: %+v", mess)
     fmt.Println("Message: %v", mess)
@@ -110,3 +119,18 @@ func handler(w http.ResponseWriter, r *http.Request)  {
     }
 }
 
+
+func checkCache(key string) string {
+    client := redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+		Password: "",
+		DB: 0,
+    })
+	
+    val, err := client.Get(client.Context(), key).Result()
+    if err != nil {
+        fmt.Println(err)
+    }
+    
+    return val
+}
