@@ -10,8 +10,10 @@ import(
 )
 
 type Message struct {
+    JobId int
 	Content string
-	Sender string
+    Sender string
+    Status string
 }
 
 func main()  {
@@ -20,24 +22,22 @@ func main()  {
 }
 
 func handler(w http.ResponseWriter, r *http.Request)  {
-	var m Message
+	var mess Message
 
-	err := json.NewDecoder(r.Body).Decode(&m)
+	err := json.NewDecoder(r.Body).Decode(&mess)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	fmt.Fprintf(w, "Message: %+v", m)
-
+    mess.Status = "running"
+    body, err := json.Marshal(mess)
+    fmt.Fprintf(w, "Message: %+v", mess)
+    fmt.Println("Message: %v", mess)
 
 	// Push to Message Queue
 	url := os.Getenv("AMQP_URL")
-
-    //If it doesn't exist, use the default connection string.
-
     if url == "" {
-        //Don't do this in production, this is for testing purposes only.
         url = "amqp://guest:guest@localhost:5672"
     }
 
@@ -57,31 +57,56 @@ func handler(w http.ResponseWriter, r *http.Request)  {
     }
 
     // create an exahange that will bind to the queue to send and receive messages
-    err = channel.ExchangeDeclare("events", "topic", true, false, false, false, nil)
+    err = channel.ExchangeDeclare(
+        "events",
+        "topic",
+        true, 
+        false, 
+        false, 
+        false, 
+        nil,
+    )
     if err != nil {
         panic(err)
     }
 
     message := amqp.Publishing{
-        Body: []byte(m.Content),
+        ContentType: "application/json",
+        Body: body,
     }
 
-    err = channel.Publish("events", "random-key", false, false, message)
+    err = channel.Publish(
+        "events", 
+        "random-key", 
+        false, 
+        false, 
+        message,
+    )
     if err != nil {
         panic("error publishing a message to the queue:" + err.Error())
     }
 
-    _, err = channel.QueueDeclare("test", true, false, false, false, nil)
+    _, err = channel.QueueDeclare(
+        "test", 
+        true, 
+        false, 
+        false, 
+        false, 
+        nil,
+    )
     if err != nil {
         panic("error declaring the queue: " + err.Error())
     }
 
-    err = channel.QueueBind("test", "#", "events", false, nil)
+    err = channel.QueueBind(
+        "test", 
+        "#", 
+        "events", 
+        false, 
+        nil,
+    )
     if err != nil {
         panic("error binding to the queue: " + err.Error())
     }
-
-
-
-
 }
+
