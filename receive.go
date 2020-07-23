@@ -97,7 +97,7 @@ func failOnError(err error, msg string) {
 func sendMail(message Message) {
 	// Sender data.
     from := "hoanglinh831999@gmail.com"
-    password := "hoanglinh1999"
+    password := "********"
     // Receiver email address.
     to := []string{message.Receiver}
     // smtp server configuration.
