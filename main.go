@@ -1,29 +1,38 @@
 package main
 
 import(
+    "os"
 	"fmt"
-	"log"
 	"net/http"
-	"encoding/json"
-	"os"
+    "encoding/json"
+    "strconv"
     "github.com/streadway/amqp"
     "github.com/go-redis/redis"
-    "strconv"
+    "github.com/gorilla/mux"
 )
 
 type Message struct {
-    JobId int
-	Content string
-    Sender string
-    Status string
+    Receiver string `json:"receiver"`
+    Content string  `json:"content"`
+    ID string `json:"id"`
 }
+
+type Job struct {
+    ID string   `json:"id"`
+    Status string   `json:"status"`
+}
+
+var cnt int 
 
 func main()  {
-	http.HandleFunc("/", handler)
-	log.Fatal(http.ListenAndServe("localhost:8000", nil))
+    cnt = 0
+    router := mux.NewRouter()
+    router.HandleFunc("/task", createTask).Methods("POST")
+    router.HandleFunc("/tasks/{id}", getTask).Methods("GET")
+	http.ListenAndServe(":8000", router)
 }
 
-func handler(w http.ResponseWriter, r *http.Request)  {
+func createTask(w http.ResponseWriter, r *http.Request)  {
 	var mess Message
 
 	err := json.NewDecoder(r.Body).Decode(&mess)
@@ -32,17 +41,12 @@ func handler(w http.ResponseWriter, r *http.Request)  {
 		return
 	}
 
-    mess.Status = checkCache("jobId" + strconv.Itoa(mess.JobId))
-    if mess.Status == "completed" {
-        fmt.Fprintf(w, "Message: %+v", mess)
-        fmt.Println("Message: %v", mess)
-        return
-    } else {
-        mess.Status = "running"
-    }
+    cnt++   
+    mess.ID = strconv.Itoa(cnt)
     body, err := json.Marshal(mess)
     fmt.Fprintf(w, "Message: %+v", mess)
     fmt.Println("Message: %v", mess)
+    saveInRedis(mess.ID, "in queue")
 
 	// Push to Message Queue
 	url := os.Getenv("AMQP_URL")
@@ -119,7 +123,19 @@ func handler(w http.ResponseWriter, r *http.Request)  {
     }
 }
 
+func getTask(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("Content-Type", "application/json")
+    params := mux.Vars(r)
+    result := checkCache("jobId" + params["id"])
+    if result == "" {
+        json.NewEncoder(w).Encode("can't find this job")
+    } else {
+        job := Job{params["id"], result}
+        json.NewEncoder(w).Encode(job)
+    }
+}
 
+// Check status of job from redis
 func checkCache(key string) string {
     client := redis.NewClient(&redis.Options{
 		Addr: "localhost:6379",
@@ -134,3 +150,28 @@ func checkCache(key string) string {
     
     return val
 }
+
+func saveInRedis(jobId string, status string) {
+	client := redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+		Password: "",
+		DB: 0,
+    })
+	
+	key := "jobId" + jobId
+
+    err := client.Set(client.Context(), key, status , 0).Err()
+    if err != nil {
+        fmt.Println(err)
+	}
+	
+    val, err := client.Get(client.Context(), key).Result()
+    if err != nil {
+        fmt.Println(err)
+	}
+	
+    fmt.Println(val)
+}
+
+
+

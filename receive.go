@@ -3,18 +3,33 @@ package main
 import (
 	"log"
 	"os"
-	"github.com/streadway/amqp"
-	"strconv"
 	"fmt"
+	"net/smtp"
 	"encoding/json"
 	"github.com/go-redis/redis"
+	"github.com/streadway/amqp"
 )
 
 type Message struct {
-	JobId int
-	Content string
-    Sender string
-    Status string
+	Receiver string `json:"receiver"`
+	Content string	`json:"content"`
+	ID string `json:"id"`
+}
+
+type Job struct {
+    ID string   `json:"id"`
+    Status string   `json:"status"`
+}
+
+// smtpServer data to smtp server
+type smtpServer struct {
+	host string
+	port string
+}
+
+// Address URI to smtp server
+func (s *smtpServer) Address() string {
+	return s.host + ":" + s.port
 }
 
 func main() {
@@ -62,8 +77,9 @@ func main() {
 			log.Printf("Received a message: %s", d.Body)
 			var mess Message
 			json.Unmarshal(d.Body, &mess)
-
-			saveInRedis(mess.JobId, mess.Status)
+			saveInRedis(mess.ID, "running")
+			sendMail(mess)
+			saveInRedis(mess.ID, "completed")
 		}
 	}()
 	
@@ -78,21 +94,39 @@ func failOnError(err error, msg string) {
 }
 
 
-func sendMail() {
+func sendMail(message Message) {
+	// Sender data.
+    from := "hoanglinh831999@gmail.com"
+    password := "hoanglinh1999"
+    // Receiver email address.
+    to := []string{message.Receiver}
+    // smtp server configuration.
+    smtpServer := smtpServer{host: "smtp.gmail.com", port: "587"}
+    // Message.
+    mess := []byte(message.Content)
+    // Authentication.
+    auth := smtp.PlainAuth("", from, password, smtpServer.host)
+    // Sending email.
+    err := smtp.SendMail(smtpServer.Address(), auth, from, to, mess)
+    if err != nil {
+        fmt.Println(err)
+        return
+    }
+    fmt.Println("Email Sent!")
 
 }
 
 
-func saveInRedis(jobId int, status string) {
+func saveInRedis(jobId string, status string) {
 	client := redis.NewClient(&redis.Options{
 		Addr: "localhost:6379",
 		Password: "",
 		DB: 0,
     })
 	
-	key := "jobId" + strconv.Itoa(jobId)
+	key := "jobId" + jobId
 
-    err := client.Set(client.Context(), key, "completed" , 0).Err()
+    err := client.Set(client.Context(), key, status , 0).Err()
     if err != nil {
         fmt.Println(err)
 	}
